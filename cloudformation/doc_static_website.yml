@@ -1,0 +1,271 @@
+Mappings:
+  RegionMap:
+    us-east-1:
+      S3hostedzoneID: Z3AQBSTGFYJSTF
+      websiteendpoint: s3-website-us-east-1.amazonaws.com
+    us-west-1:
+      S3hostedzoneID: Z2F56UZL2M1ACD
+      websiteendpoint: s3-website-us-west-1.amazonaws.com
+    us-west-2:
+      S3hostedzoneID: Z3BJ6K6RIION7M
+      websiteendpoint: s3-website-us-west-2.amazonaws.com
+    eu-west-1:
+      S3hostedzoneID: Z1BKCTXD74EZPE
+      websiteendpoint: s3-website-eu-west-1.amazonaws.com
+    ap-southeast-1:
+      S3hostedzoneID: Z3O0J2DXBE1FTB
+      websiteendpoint: s3-website-ap-southeast-1.amazonaws.com
+    ap-southeast-2:
+      S3hostedzoneID: Z1WCIGYICN2BYD
+      websiteendpoint: s3-website-ap-southeast-2.amazonaws.com
+    ap-northeast-1:
+      S3hostedzoneID: Z2M4EHUR26P7ZW
+      websiteendpoint: s3-website-ap-northeast-1.amazonaws.com
+    sa-east-1:
+      S3hostedzoneID: Z31GFT0UA1I2HV
+      websiteendpoint: s3-website-sa-east-1.amazonaws.com
+    ap-northeast-2:
+      S3hostedzoneID: Z3W03O7B5YMIYP
+      websiteendpoint: s3-website.ap-northeast-2.amazonaws.com
+Parameters:
+  AcmCertificateArn:
+    Description: AcmCertificateArn
+    Type: String
+
+  HostedZoneName:
+    Description: HostedZoneName
+    Type: String
+
+  ProjectName:
+    Type: String
+
+  ServiceDomain:
+    Type: String
+
+Resources:
+  DeploymentBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Delete
+    Properties:
+      AccessControl: Private
+      BucketName: !Sub "${ServiceDomain}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      WebsiteConfiguration:
+        IndexDocument: index.html
+        ErrorDocument: index.html
+  StaticSiteCloudFrontOAC:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Description: !Sub "${ProjectName}-OAC"
+        Name: !Sub ${AWS::StackName}-OAC
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+  StaticSiteCFDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      Tags:
+        - Key: "Project"
+          Value: !Ref ProjectName
+      DistributionConfig:
+        PriceClass: PriceClass_All
+        Origins:
+          - Id: !Sub "${ProjectName}.${ServiceDomain}"
+            DomainName: !Join [".", [!Ref DeploymentBucket, "s3", "ap-northeast-2", "amazonaws.com"]]
+            S3OriginConfig:
+              OriginAccessIdentity: ""
+            OriginAccessControlId: !GetAtt StaticSiteCloudFrontOAC.Id
+            ConnectionAttempts: 3
+            ConnectionTimeout: 10
+        Enabled: "true"
+        DefaultRootObject: index.html
+        Aliases:
+          - !Sub "${ServiceDomain}"
+        DefaultCacheBehavior:
+          AllowedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+          TargetOriginId: !Sub "${ProjectName}.${ServiceDomain}"
+          ForwardedValues:
+            QueryString: "false"
+            Cookies:
+              Forward: none
+          ViewerProtocolPolicy: redirect-to-https
+          CachedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+          DefaultTTL: 0
+          MinTTL: 0
+          MaxTTL: 31536000
+        ViewerCertificate:
+          SslSupportMethod: sni-only
+          AcmCertificateArn: !Ref AcmCertificateArn
+        CustomErrorResponses:
+          - ErrorCode: "403"
+            ResponsePagePath: "/index.html"
+            ResponseCode: "200"
+            ErrorCachingMinTTL: "10"
+          - ErrorCode: "404"
+            ResponsePagePath: "/index.html"
+            ResponseCode: "200"
+            ErrorCachingMinTTL: "10"
+
+  StaticSiteReadPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref DeploymentBucket
+      PolicyDocument:
+        Statement:
+          - Action: s3:GetObject
+            Effect: Allow
+            Resource: !Sub "arn:aws:s3:::${DeploymentBucket}/*"
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub arn:aws:cloudfront::${AWS::AccountId}:distribution/${StaticSiteCFDistribution}
+  DNSRecord:
+    Type: AWS::Route53::RecordSetGroup
+    Properties:
+      HostedZoneName: !Join ["", [!Ref "HostedZoneName", "."]]
+      Comment: !Join ["", [StaticWebsiteRoute for, !Ref ProjectName]]
+      RecordSets:
+        - Name: !Sub "${ServiceDomain}"
+          Type: A
+          AliasTarget:
+            DNSName: !GetAtt StaticSiteCFDistribution.DomainName
+            EvaluateTargetHealth: false
+            HostedZoneId: Z2FDTNDATAQYW2
+  EmptyS3LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: "/"
+      Policies:
+        - PolicyName: root
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "s3:*"
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - "logs:CreateLogGroup"
+                  - "logs:CreateLogStream"
+                  - "logs:PutLogEvents"
+                Resource: "*"
+  EmptyS3BucketLambda:
+    Type: "AWS::Lambda::Function"
+    Properties:
+      Handler: "index.handler"
+      Role:
+        Fn::GetAtt:
+          - "EmptyS3LambdaExecutionRole"
+          - "Arn"
+      Runtime: "nodejs20.x"
+      Timeout: 600
+      Code:
+        ZipFile: |
+          const { S3Client, ListObjectsV2Command, DeleteObjectCommand } = require("@aws-sdk/client-s3");
+          const https = require('https');
+
+          exports.handler = async (event, context) => {
+            const s3Client = new S3Client({ region: process.env.AWS_REGION });
+            try {
+              const bucketName = event['ResourceProperties']['BucketName'];
+              
+              if (event['RequestType'] === 'Delete') {
+                let continuationToken = null;
+                do {
+                  const listParams = {
+                    Bucket: bucketName,
+                    ContinuationToken: continuationToken,
+                  };
+                  console.log(listParams);
+                  const listedObjects = await s3Client.send(new ListObjectsV2Command(listParams));
+                  console.log(JSON.stringify(listedObjects))
+                  if (listedObjects.Contents&& listedObjects.Contents.length > 0) {
+                    for (let i = 0; i < listedObjects.Contents.length; i++) {
+                      const deleteParams = {
+                        Bucket: bucketName,
+                        Key: listedObjects.Contents[i].Key,
+                      };
+                      await s3Client.send(new DeleteObjectCommand(deleteParams));
+                    }
+                  }
+                  continuationToken = listedObjects.NextContinuationToken;
+                } while (continuationToken);
+              }
+              
+              await sendResponseCfn(event, context, "SUCCESS");
+            } catch (error) {
+              console.error(error);
+              await sendResponseCfn(event, context, "FAILED");
+            }
+          };
+
+          const sendResponseCfn = async (event, context, responseStatus) => {
+            const responseBody = JSON.stringify({
+              Status: responseStatus,
+              Reason: 'See the details in CloudWatch Log Stream: ' + context.logStreamName,
+              PhysicalResourceId: context.logStreamName,
+              StackId: event['StackId'],
+              RequestId: event['RequestId'],
+              LogicalResourceId: event['LogicalResourceId'],
+              Data: {},
+            });
+
+            const parsedUrl = new URL(event['ResponseURL']);
+            const options = {
+              hostname: parsedUrl.hostname,
+              port: 443,
+              path: parsedUrl.pathname + parsedUrl.search,
+              method: 'PUT',
+              headers: {
+                'content-type': '',
+                'content-length': responseBody.length
+              }
+            };
+
+            return new Promise((resolve, reject) => {
+              const request = https.request(options, (response) => {
+                response.setEncoding('utf8');
+                response.on('end', () => {
+                  resolve();
+                });
+              });
+
+              request.on('error', (error) => {
+                console.error('Failed to send CloudFormation response:', error);
+                reject(error);
+              });
+
+              request.write(responseBody);
+              request.end();
+            });
+          };
+  LambdaUsedToCleanUpS3:
+    Type: Custom::cleanupbucket
+    Properties:
+      Tags:
+        - Key: "Project"
+          Value: !Ref ProjectName
+      ServiceToken: !GetAtt EmptyS3BucketLambda.Arn
+      BucketName: !Ref DeploymentBucket
