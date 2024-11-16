@@ -8,6 +8,7 @@ export default function Page() {
   const [resizedImageBase64, setResizedImageBase64] = useState<string | null>(null);
   const [width, setWidth] = useState<number>(300); // Default value set to 300
   const [height, setHeight] = useState<number>(100); // Default value set to 100
+  const [comment, setComment] = useState<string>(""); // State to hold server comment
 
   // Handle image upload and convert to Base64
   const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -35,9 +36,10 @@ export default function Page() {
         height: Number(height),
       });
 
-      // Extract the resized image base64 from JSON response
+      // Extract the resized image base64 and comment from JSON response
       const resizedImageBase64 = `data:image/png;base64,${response.data.resizedImageBase64}`;
       setResizedImageBase64(resizedImageBase64);
+      setComment(response.data.comment || "No comment provided by server."); // Update comment
 
 
     } catch (error) {
@@ -95,6 +97,14 @@ export default function Page() {
           편집된 이미지 다운로드
         </button>
       )}
+
+      <input
+        type="text"
+        value={comment}
+        readOnly
+        style={{ marginTop: '20px', padding: '10px', width: '300px', border: '1px solid #ccc', borderRadius: '4px', backgroundColor: '#f7f9fc', color: '#333' }}
+        placeholder="Server comment"
+      />
     </div>
   );
 }
