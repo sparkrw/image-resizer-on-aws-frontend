@@ -8,12 +8,8 @@ phases:
       - npm install
   build:
     commands:
-      #list all files
-      - echo printing bucket_name
-      - echo $bucket_name
       - yarn run build
-      - aws s3 sync ./out  s3://"$bucket_name"/ --region ap-northeast-2
-      - echo $ENV_VAR
+
 
 artifacts:
   files:

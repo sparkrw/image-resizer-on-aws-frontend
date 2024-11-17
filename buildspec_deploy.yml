@@ -1,0 +1,11 @@
+version: 0.2
+
+phases:
+  build:
+    commands:
+      - echo $bucket_name
+      - aws s3 sync ./out  s3://"$bucket_name"/ --region ap-northeast-2
+artifacts:
+  files:
+      - "**/*"
+  base-directory: ./
