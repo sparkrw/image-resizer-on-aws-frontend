@@ -30,7 +30,7 @@ export default function Page() {
     }
 
     try {
-      const response = await axios.post('https://resize.rwlecture.com/resize', {
+      const response = await axios.post(process.env.NEXT_PUBLIC_API_URL!, {
         imageBase64,
         width: Number(width),
         height: Number(height),

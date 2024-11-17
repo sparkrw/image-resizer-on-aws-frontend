@@ -1,0 +1,19 @@
+version: 0.2
+
+phases:
+  install:
+    commands:
+      - n 20.10.0
+      - echo Installing dependencies...
+      - npm install
+  build:
+    commands:
+      #list all files
+      - yarn run build
+      - aws s3 sync ./dist  s3://"$bucket_name"/ --region ap-northeast-2
+      - echo $ENV_VAR
+
+artifacts:
+  files:
+      - "**/*"
+  base-directory: ./
